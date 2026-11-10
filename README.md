@@ -1,5 +1,6 @@
 ```bash
 git clone https://github.com/dhuberto/observabilidade.git
+
 cd observabilidade
 
 docker compose up -d      # sobe em background
