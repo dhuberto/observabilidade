@@ -1,0 +1,207 @@
+# OBJETIVO (Início): Orquestrar de forma autocontida o ambiente da Prática 4 (O Mistério do Checkout)
+# com a correção aplicada no pool de conexões do banco de dados (DB_POOL_SIZE=20) para eliminar a saturação.
+
+services:
+  # Aplicação da loja virtual (imagem oficial fornecida pelo professor)
+  loja:
+    image: mvalgueiroschool/pratica-misterio-app:1.0.0
+    container_name: loja
+    ports:
+      - "8080:8080"
+    environment:
+      # CORREÇÃO APLICADA: Antes estava DB_POOL_SIZE=2, causando fila e timeout para 8 clientes simultâneos.
+      # Com 20 conexões e timeout de 5s, o pool absorve toda a concorrência sem saturação.
+      - DB_POOL_SIZE=20
+      - DB_POOL_TIMEOUT=5
+    labels:
+      # Labels obrigatórios para o Grafana Alloy descobrir o container e indexar os logs no Loki
+      logging: "alloy"
+      service: "loja"
+
+  # Gerador de carga simulando 8 clientes concorrentes navegando na loja
+  trafego:
+    image: curlimages/curl:8.22.0
+    container_name: trafego
+    entrypoint:
+      - sh
+      - -c
+      - |
+        APP=http://loja:8080
+        sorteio() { echo $$(( $$(od -An -N1 -tu1 /dev/urandom) % 100 )); }
+        cliente() {
+          while true; do
+            n=$$(sorteio)
+            if [ "$$n" -lt 25 ]; then
+              curl -s -o /dev/null "$$APP/"
+            elif [ "$$n" -lt 55 ]; then
+              curl -s -o /dev/null "$$APP/produtos"
+            else
+              curl -s -o /dev/null "$$APP/checkout"
+            fi
+            sleep 0.1
+          done
+        }
+        i=0; while [ "$$i" -lt 8 ]; do cliente & i=$$((i + 1)); done; wait
+    depends_on:
+      - loja
+
+  # Backend de métricas (modelo Pull/Scrape a cada 5s na porta 8080 da loja)
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus-data:/prometheus
+
+  # Backend de armazenamento de logs indexados por labels
+  loki:
+    image: grafana/loki:3.7.8
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki-config.yml
+    configs:
+      - source: loki_config
+        target: /etc/loki/loki-config.yml
+    volumes:
+      - loki-data:/loki
+
+  # Agente coletor que lê o stdout dos containers via Docker Socket e envia ao Loki
+  alloy:
+    image: grafana/alloy:v1.20.1
+    container_name: alloy
+    ports:
+      - "12345:12345"
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    configs:
+      - source: alloy_config
+        target: /etc/alloy/config.alloy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  # Interface unificada de visualização (sobe com datasources Prometheus e Loki provisionados)
+  grafana:
+    image: grafana/grafana:13.2.3
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_DEFAULT_LANGUAGE=pt-BR
+    configs:
+      - source: grafana_datasources
+        target: /etc/grafana/provisioning/datasources/datasources.yml
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+      - prometheus
+
+# Configs declarativos embutidos para manter a pasta atividade-4-misterio-checkout limpa e portátil
+configs:
+  prometheus_config:
+    content: |
+      global:
+        scrape_interval: 5s
+      scrape_configs:
+        - job_name: loja
+          static_configs:
+            - targets: ["loja:8080"]
+
+  loki_config:
+    content: |
+      auth_enabled: false
+      server:
+        http_listen_port: 3100
+      common:
+        instance_addr: 127.0.0.1
+        path_prefix: /loki
+        storage:
+          filesystem:
+            chunks_directory: /loki/chunks
+            rules_directory: /loki/rules
+        replication_factor: 1
+        ring:
+          kvstore:
+            store: inmemory
+      schema_config:
+        configs:
+          - from: 2020-10-24
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        allow_structured_metadata: true
+
+  alloy_config:
+    content: |
+      discovery.docker "containers" {
+        host             = "unix:///var/run/docker.sock"
+        refresh_interval = "5s"
+        filter {
+          name   = "label"
+          values = ["logging=alloy"]
+        }
+      }
+      discovery.relabel "containers" {
+        targets = []
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/(.*)"
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_docker_container_label_service"]
+          target_label  = "service"
+        }
+      }
+      loki.source.docker "containers" {
+        host          = "unix:///var/run/docker.sock"
+        targets       = discovery.docker.containers.targets
+        relabel_rules = discovery.relabel.containers.rules
+        forward_to    = [loki.write.local.receiver]
+      }
+      loki.write "local" {
+        endpoint {
+          url = "http://loki:3100/loki/api/v1/push"
+        }
+      }
+
+  grafana_datasources:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: true
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki:3100
+          jsonData:
+            maxLines: 1000
+
+volumes:
+  grafana-data:
+  loki-data:
+  prometheus-data:
+
+# RESUMO FINAL (Fim): Sobe toda a stack da Prática 4 com o ajuste de capacidade (DB_POOL_SIZE=20),
+# permitindo comprovar no Grafana a queda de erros 500 para zero no /checkout.

@@ -1,0 +1,45 @@
+# OBJETIVO (Início): Provisionar automaticamente no Grafana as três fontes de dados (Prometheus,
+# Loki e Tempo) e configurar a correlação bidirecional Logs <-> Traces via trace_id.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: '"trace_id":"([a-f0-9]+)"'
+          name: TraceID
+          url: "$${__value.raw}"
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        filterByTraceID: true
+        filterBySpanID: false
+        customQuery: true
+        query: '{service="$${__span.tags["service.name"]}"} | json | trace_id="$${__span.traceId}"'
+      nodeGraph:
+        enabled: true
+
+# RESUMO FINAL (Fim): Garante que o Grafana suba 100% conectado aos 3 backends com correlação bidirecional.

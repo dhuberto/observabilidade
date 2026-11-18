@@ -1,0 +1,25 @@
+# OBJETIVO (Início): Configurar o Grafana Tempo em modo monolítico para receber traces OTLP
+# encaminhados pelo Alloy e armazená-los localmente em blocos para busca via TraceQL.
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /tmp/tempo/wal
+    local:
+      path: /tmp/tempo/blocks
+
+# RESUMO FINAL (Fim): Fornece o backend de rastreamento distribuído da stack.

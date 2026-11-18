@@ -1,0 +1,16 @@
+# OBJETIVO (Início): Instruir o Grafana a carregar automaticamente os arquivos JSON de dashboards
+# presentes em /etc/grafana/provisioning/dashboards durante a inicialização.
+
+apiVersion: 1
+
+providers:
+  - name: projeto-final-observabilidade
+    orgId: 1
+    folder: Projeto Final - Observabilidade
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+
+# RESUMO FINAL (Fim): Automatiza a entrega do painel RED como código versionado.

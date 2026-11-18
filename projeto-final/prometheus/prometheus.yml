@@ -1,0 +1,25 @@
+# OBJETIVO (Início): Configurar o servidor Prometheus para realizar coletas ativas (modelo Pull/Scrape)
+# a cada 5 segundos nos endpoints /metrics dos microsserviços e da própria stack.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: loja-api
+    static_configs:
+      - targets: ["loja-api:8080"]
+
+  - job_name: pagamento-service
+    static_configs:
+      - targets: ["pagamento-service:8081"]
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+
+# RESUMO FINAL (Fim): Centraliza a coleta de séries temporais expostas pelos microsserviços.

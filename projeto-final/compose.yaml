@@ -1,0 +1,134 @@
+# OBJETIVO (Início): Arquivo principal de orquestração que sobe com um único 'docker compose up'
+# os dois microsserviços instrumentados, o gerador de tráfego e toda a stack LGTM + Alloy.
+
+services:
+  # Microsserviço 1: API de entrada da loja (recebe pedidos e chama pagamento-service)
+  loja-api:
+    build:
+      context: ./services/loja-api
+    container_name: loja-api
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVICE_NAME=loja-api
+      - PORT=8080
+      - PAGAMENTO_URL=http://pagamento-service:8081
+      - OTEL_SERVICE_NAME=loja-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318/v1/traces
+    labels:
+      logging: "alloy"
+      service: "loja-api"
+    depends_on:
+      - pagamento-service
+      - alloy
+
+  # Microsserviço 2: Serviço interno de processamento de pagamentos (recebe traceparent)
+  pagamento-service:
+    build:
+      context: ./services/pagamento-service
+    container_name: pagamento-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVICE_NAME=pagamento-service
+      - PORT=8081
+      - OTEL_SERVICE_NAME=pagamento-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318/v1/traces
+    labels:
+      logging: "alloy"
+      service: "pagamento-service"
+    depends_on:
+      - alloy
+
+  # Gerador contínuo de requisições para popular métricas, logs e traces automaticamente
+  trafego:
+    image: curlimages/curl:8.22.0
+    container_name: trafego
+    entrypoint: ["sh", "/gerar-trafego.sh"]
+    volumes:
+      - ./trafego/gerar-trafego.sh:/gerar-trafego.sh:ro
+    depends_on:
+      - loja-api
+
+  # Agente unificado de telemetria: coleta logs do Docker e recebe traces OTLP
+  alloy:
+    image: grafana/alloy:v1.20.1
+    container_name: alloy
+    ports:
+      - "12345:12345"
+      - "4317:4317"
+      - "4318:4318"
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+      - tempo
+
+  # Backend de Logs (armazena chunks em disco e indexa apenas os labels)
+  loki:
+    image: grafana/loki:3.7.8
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+
+  # Backend de Métricas (coleta /metrics dos serviços via modelo Pull/Scrape)
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - loja-api
+      - pagamento-service
+
+  # Backend de Traces Distribuídos (recebe spans OTLP do Alloy e persiste localmente)
+  tempo:
+    image: grafana/tempo:2.7.2
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/tmp/tempo
+
+  # Interface unificada de visualização (sobe provisionada com datasources + dashboard RED)
+  grafana:
+    image: grafana/grafana:13.2.3
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_DEFAULT_LANGUAGE=pt-BR
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+volumes:
+  grafana-data:
+  loki-data:
+  prometheus-data:
+  tempo-data:
+
+# RESUMO FINAL (Fim): Orquestra 8 containers integrados sem necessidade de configuração manual
+# após a subida, garantindo reprodutibilidade total para a avaliação do projeto final.
