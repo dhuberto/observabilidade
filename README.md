@@ -11,9 +11,11 @@
 
 ## 1. Como Subir Toda a Stack (Um Único Comando)
 
-Na pasta `projeto-final/`, execute:
+Execute: `git clone https://github.com/dhuberto/observabilidade.git`:
 
 ```bash
+cd ~/observabilidade
+
 docker compose up -d --build
 ```
 
