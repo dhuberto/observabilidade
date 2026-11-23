@@ -60,11 +60,56 @@ O sistema implementa uma arquitetura de microsserviços instrumentada ponta a po
 
 ## 5. Evidências de Funcionamento
 
-Os screenshots comprobatórios estão salvos na pasta `evidencias/`:
-1. `evidencias/01-docker-compose-ps.png` — Todos os 8 containers ativos (`Up`).
-2. `evidencias/02-grafana-dashboard-red.png` — Dashboard RED mostrando Rate, Errors, Duration (p95) e logs.
-3. `evidencias/03-loki-logs-traceid.png` — Consulta LogQL exibindo logs JSON estruturados com `trace_id` e link para o Tempo.
-4. `evidencias/04-tempo-trace-distribuido.png` — Trace distribuído atravessando `loja-api` e `pagamento-service` com spans manuais.
+Os screenshots comprobatórios estão na pasta [`evidencias/`](../evidencias/), com legenda em [`evidencias/README.md`](../evidencias/README.md):
+
+| Sinal | Arquivo | O que prova |
+| :--- | :--- | :--- |
+| Stack | `01-docker-compose-ps.png` | Os 8 containers ativos (`Up`). |
+| Métricas + Logs | `02-grafana-dashboard-red.png` | Dashboard RED provisionado (Rate, Errors, Duration p95) e logs com `trace_id`. |
+| Logs | `03-loki-logs-traceid.png` | Logs JSON no Loki e salto direto para o trace (campo derivado `TraceID`). |
+| Traces | `04-tempo-trace-distribuido.png` | Trace `POST /checkout` atravessando `loja-api` e `pagamento-service` (5 spans, 2 serviços). |
+| Correlação | `05-trace-para-logs.png`, `05b-trace-para-logs-loja-api.png` | Do trace para os logs da mesma requisição, via `trace_id`. |
+| Métricas | `06-prometheus-targets.png` | Os 4 targets do Prometheus em `UP`. |
+| Erros (logs) | `07-loki-log-erro.png` | Logs `level="ERROR"` com `trace_id`. |
+| Erros (traces) | `08b-tempo-trace-erro-checkout.png` | Trace de checkout com erro atravessando os dois serviços. |
+| Erros (métricas) | `09-prometheus-erros.png` | Taxa de respostas 5xx por serviço e rota. |
+
+> Os erros observados são **intencionais**: a rota `/erro` é chamada de propósito pelo gerador de tráfego (~5%) e o `pagamento-service` falha em ~10% das chamadas, para que haja falhas a investigar.
+
+## 6. Como o App Funciona
+
+A aplicação é uma loja virtual simplificada, escrita em Python (servidor HTTP da biblioteca padrão), dividida em **dois microsserviços** que se comunicam por HTTP. O código está em `services/loja-api/app.py` e `services/pagamento-service/app.py`.
+
+### `loja-api` (porta 8080) — serviço de entrada
+
+| Rota | O que faz | Comportamento simulado |
+| :--- | :--- | :--- |
+| `GET /` | Página inicial (`{"status": "loja online"}`) | Resposta rápida (poucos ms) |
+| `GET /produtos` | Lista de produtos | Atraso de ~20 a 90 ms |
+| `POST /checkout` | Finaliza uma compra | Reserva estoque e chama o `pagamento-service` (fluxo abaixo) |
+| `GET /erro` | Rota de falha proposital | Lança uma exceção e responde HTTP 500 |
+| `GET /metrics` | Métricas no formato Prometheus | Lido pelo Prometheus (pull) |
+
+Qualquer outra rota é contabilizada como `path="outro"` nas métricas, para não criar séries novas a cada URL diferente.
+
+### Fluxo do `POST /checkout`
+
+1. A `loja-api` abre o span raiz `HTTP POST /checkout` e gera um número de pedido (`pedido.id`) e um valor (`pedido.valor`).
+2. Span `reservar_estoque`: simula a verificação e a reserva do estoque (eventos `verificando_disponibilidade_sku` e `estoque_reservado_com_sucesso`).
+3. Span `chamar_pagamento_service`: faz `POST /pagar` no `pagamento-service`, enviando o cabeçalho W3C `traceparent` (propagação de contexto).
+4. O `pagamento-service` extrai o `traceparent` e continua o **mesmo trace**: span `POST /pagar` e, dentro dele, `analise_antifraude`, que simula uma consulta de risco de ~50 a 350 ms.
+5. Em cerca de **10% das chamadas** o pagamento falha de propósito (erro 502, "Timeout na comunicação com operadora de cartão"). A `loja-api` converte isso em **HTTP 500** para o cliente e marca o span com erro.
+6. Se tudo der certo, a resposta é HTTP 200 com o pedido e o status `aprovado`.
+
+### `pagamento-service` (porta 8081) — serviço interno
+
+Expõe `POST /pagar` (aprovação do pagamento), `GET /` (verificação de que está ativo) e `GET /metrics`. Tem as próprias métricas, logs e spans, todos com `service="pagamento-service"`.
+
+### Por que esse app é bom para observabilidade
+
+- **Tem falhas e lentidão previsíveis** (`/erro`, 10% de falha no pagamento, latência variável), o que dá algo para investigar nos três sinais.
+- **Atravessa dois serviços**, o que permite mostrar um trace distribuído e a correlação entre log e trace pelo `trace_id`.
+- **O gerador de tráfego** (`trafego/gerar-trafego.sh`, serviço `trafego` no compose) mantém requisições contínuas: cerca de 45% `POST /checkout`, 30% `/produtos`, 20% `/` e 5% `/erro`.
 
 <!-- RESUMO FINAL (Fim): Documentação completa exigida pelos critérios de avaliação do Projeto Final,
      justificando escolhas técnicas de arquitetura, cardinalidade, estatística e correlação. -->
