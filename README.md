@@ -68,10 +68,6 @@ Serviços iniciados automaticamente:
 
 ---
 
-## 4. Documentação e Evidências
+## 4. Documentação
 
 * **Arquitetura e Decisões de Instrumentação:** [`docs/arquitetura-e-decisoes.md`](docs/arquitetura-e-decisoes.md)
-* **Evidências de Execução (Screenshots):** Pasta [`evidencias/`](evidencias/)
-
-<!-- RESUMO FINAL (Fim): Instruções claras e reproduzíveis para execução, validação dos três
-     pilares e navegação entre sinais no Grafana. -->
