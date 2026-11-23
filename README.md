@@ -5,17 +5,16 @@
 
 **Disciplina:** Fundamentos de Observabilidade: Métricas, Logs e Traces  
 **Professor:** Mateus Valgueiro  
-**Repositório:** `https://github.com/dhuberto/observabilidade`  
+**Grupo:** Tiago Camilo (@Tiagocamilos), Danilo Huberto (@dhuberto), Eric Malone (@emcsmalone), Helierison Cardoso (@helierison), Everton Genuino (@tongenx)  
+**Repositório:** `https://github.com/Tiagocamilos/observabilidade`  
 
 ---
 
 ## 1. Como Subir Toda a Stack (Um Único Comando)
 
+Na raiz do repositório, execute:
+
 ```bash
-git clone https://github.com/dhuberto/observabilidade.git
-
-cd ~/observabilidade
-
 docker compose up -d --build
 ```
 
