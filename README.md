@@ -1,12 +1,7 @@
 <!-- OBJETIVO (Início): Guia operacional completo do Projeto Final para o avaliador,
      descrevendo como subir toda a stack com um único comando, gerar carga e consultar os 3 sinais. -->
 
-# Projeto Final — Observabilidade Ponta a Ponta (Métricas, Logs e Traces)
-
-**Disciplina:** Fundamentos de Observabilidade: Métricas, Logs e Traces  
-**Professor:** Mateus Valgueiro  
-**Grupo:** Tiago Camilo (@Tiagocamilos), Danilo Huberto (@dhuberto), Eric Malone (@emcsmalone), Helierison Cardoso (@helierison), Everton Genuino (@tongenx)  
-**Repositório:** `https://github.com/Tiagocamilos/observabilidade`  
+# Observabilidade Ponta a Ponta (Métricas, Logs e Traces)
 
 ---
 
